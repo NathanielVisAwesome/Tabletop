@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tabletop · p2p Magic</title>
+<style>
+:root{
+  --bg:#10151a; --panel:#18212a; --panel2:#1f2b36; --line:#304250;
+  --ink:#ebe6d6; --dim:#8fa0a6; --amber:#e3a63c; --danger:#d9604c;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.4 var(--sans);display:grid;grid-template-rows:auto 1fr auto;height:100dvh;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:var(--amber)}
+button:focus-visible,input:focus-visible,textarea:focus-visible,.card:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+input,textarea{background:#0d1217;border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+
+#top{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font:600 20px var(--serif);letter-spacing:.01em}
+.grow{flex:1}
+#roomchip{color:var(--dim)}
+#peerCount{color:var(--dim)}
+
+#stage{overflow:auto;padding:12px 16px;display:flex;flex-direction:column;gap:16px}
+#opps{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,540px));gap:14px;justify-content:center}
+#me{width:min(100%,1100px);margin:0 auto}
+.empty{grid-column:1/-1;text-align:center;color:var(--dim);padding:22px 10px;border:1px dashed var(--line);border-radius:10px}
+
+.phead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 2px 6px}
+.phead b{font:600 16px var(--serif)}
+.life{font:600 22px var(--serif);color:var(--amber);min-width:2ch;text-align:center}
+.lifeedit{display:flex;align-items:center;gap:4px}
+.lifeedit input{width:58px;text-align:center;font:600 18px var(--serif);color:var(--amber)}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--ink)}
+button.chip:hover{border-color:var(--amber)}
+span.chip{color:var(--dim)}
+
+.board{position:relative;aspect-ratio:2/1;border:1px solid var(--line);border-radius:10px;
+  background:
+    radial-gradient(rgba(255,255,255,.06) 1px,transparent 1.4px) 0 0/28px 28px,
+    radial-gradient(ellipse at 50% 35%,#27424a 0%,#182a31 65%,#14222a 100%);
+  user-select:none;-webkit-user-select:none}
+.board.mine{overflow:visible}
+.card{position:absolute;width:7.2%;aspect-ratio:5/7;border-radius:5%;box-shadow:0 2px 6px rgba(0,0,0,.55);transition:transform .15s;touch-action:none}
+.card img,.hc img{width:100%;height:100%;display:block;border-radius:5%;pointer-events:none}
+.card[data-mine]{cursor:grab}
+.card.tapped{transform:rotate(90deg)}
+.card.dragging{z-index:60;transition:none;cursor:grabbing}
+.card.sel,.hc.sel,.zc.sel{outline:2px solid var(--amber);outline-offset:1px}
+.cnt{position:absolute;right:-5px;bottom:-5px;min-width:20px;height:20px;border-radius:10px;background:var(--amber);color:#1b1305;font:700 12px/20px var(--sans);text-align:center;padding:0 5px}
+.back{width:100%;height:100%;border-radius:5%;border:2px solid #2b1a10;background:repeating-linear-gradient(45deg,#58381f,#58381f 6px,#6b4630 6px,#6b4630 12px)}
+.tokenface{width:100%;height:100%;border-radius:5%;background:#e6dfcb;color:#1c1c1c;display:grid;place-items:center;text-align:center;padding:4px;font-size:clamp(8px,.9vw,13px);line-height:1.15;word-break:break-word}
+
+#dock{border-top:1px solid var(--line);background:var(--panel)}
+#logrow{display:flex;gap:8px;align-items:flex-start;padding:6px 14px 0}
+#log{flex:1;color:var(--dim);font-size:12px;max-height:3.9em;overflow:hidden;cursor:pointer;min-height:3.9em}
+#log.open{max-height:34vh;overflow:auto}
+#log div b{color:var(--ink);font-weight:500}
+#chat{width:min(260px,40%)}
+#actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:6px 14px;min-height:42px}
+.sname{font:600 14px var(--serif);margin-right:4px}
+#controls{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 6px}
+#hand{display:flex;gap:6px;padding:24px 14px 10px;overflow-x:auto;min-height:176px;align-items:flex-end;border-top:1px solid var(--line);background:#121920}
+#hand.drop{outline:2px dashed var(--amber);outline-offset:-4px}
+#hand .none{color:var(--dim);align-self:center}
+.hc{flex:0 0 auto;width:104px;aspect-ratio:5/7;border-radius:5%;transition:transform .12s;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.hc:hover{transform:translateY(-16px)}
+.hc.ghost{position:fixed;z-index:300;pointer-events:none;transform:rotate(-3deg)}
+
+#preview{position:fixed;top:60px;width:260px;z-index:150;pointer-events:none;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.7)}
+#preview.r{right:14px}
+#preview.l{left:14px}
+
+#modal{position:fixed;inset:0;z-index:200;background:rgba(5,8,11,.72);display:grid;place-items:center;padding:16px}
+#modalbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(980px,100%);max-height:88dvh;display:flex;flex-direction:column}
+#modalbox header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+#modalbox header h2{margin:0;font:600 18px var(--serif);flex:1}
+#zgrid{overflow:auto;padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+.zc{aspect-ratio:5/7;border-radius:5%;cursor:pointer}
+.zc img{width:100%;height:100%;display:block;border-radius:5%}
+#mactions{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--line);min-height:50px;align-items:center}
+
+dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:0;width:min(560px,94vw)}
+dialog::backdrop{background:rgba(5,8,11,.75)}
+dialog form{padding:20px;display:grid;gap:12px}
+dialog h1{margin:0;font:600 24px var(--serif)}
+dialog p{margin:0;color:var(--dim)}
+dialog label{display:grid;gap:4px;color:var(--dim);font-size:13px}
+.row{display:flex;gap:8px}
+.row input{flex:1}
+textarea{min-height:170px;resize:vertical;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace}
+#status{min-height:1.4em;color:var(--amber);white-space:pre-wrap}
+.primary{background:var(--amber);color:#1b1305;border-color:var(--amber);font-weight:600;padding:8px 14px}
+
+@media (max-width:640px){
+  #chat{display:none}
+  .hc{width:84px}
+  #hand{min-height:146px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header id="top">
+  <span class="brand">Tabletop</span>
+  <span id="roomchip" hidden></span>
+  <button id="copyLink" hidden>Copy invite link</button>
+  <span class="grow"></span>
+  <span id="peerCount"></span>
+  <button id="btnDeck">Join table</button>
+</header>
+
+<main id="stage">
+  <section id="opps"></section>
+  <section id="me" hidden>
+    <div class="phead" id="mehead"></div>
+    <div class="board mine" id="myboard"></div>
+  </section>
+</main>
+
+<footer id="dock">
+  <div id="logrow">
+    <div id="log" title="Click to expand"></div>
+    <input id="chat" placeholder="Say something, press Enter" autocomplete="off">
+  </div>
+  <div id="actions"></div>
+  <div id="controls">
+    <button data-c="draw">Draw (D)</button>
+    <button data-c="shuffle">Shuffle</button>
+    <button data-c="untap">Untap all (U)</button>
+    <button data-c="look">Look at top…</button>
+    <button data-c="mull">Mulligan</button>
+    <button data-c="token">New token</button>
+    <button data-c="d6">d6</button>
+    <button data-c="d20">d20</button>
+    <button data-c="coin">Coin</button>
+    <button data-c="newgame">New game</button>
+  </div>
+  <div id="hand"></div>
+</footer>
+
+<img id="preview" class="r" alt="" hidden>
+
+<div id="modal" hidden>
+  <div id="modalbox" role="dialog" aria-modal="true" aria-labelledby="mtitle">
+    <header><h2 id="mtitle"></h2><button id="mclose">Close</button></header>
+    <div id="zgrid"></div>
+    <div id="mactions"></div>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form id="joinForm">
+    <h1>Join a table</h1>
+    <p>No account and no server. Players connect directly to each other, and your library and hand never leave your browser.</p>
+    <label>Your name
+      <input id="fName" maxlength="24" autocomplete="off" placeholder="Player">
+    </label>
+    <label>Room code
+      <span class="row">
+        <input id="fRoom" autocomplete="off" placeholder="e.g. otter-4821">
+        <button type="button" id="genRoom">Generate</button>
+      </span>
+    </label>
+    <label>Decklist (Moxfield, Archidekt, Arena or MTGO text)
+      <textarea id="fDeck" spellcheck="false" placeholder="4 Lightning Bolt&#10;20 Mountain&#10;&#10;Commander&#10;1 Krenko, Mob Boss"></textarea>
+    </label>
+    <div id="status" role="status"></div>
+    <div class="row">
+      <button type="submit" class="primary" id="goBtn">Join table</button>
+      <button type="button" id="dlgClose">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const CW = 0.072, AR = 2, CH = CW * 1.4 * AR;          // card size as fractions of board
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const rnd = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-3);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function shuffle(a){ for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+/* ---------- state ---------- */
+const ZONES = ['library', 'hand', 'battlefield', 'graveyard', 'exile', 'command'];
+const me = { name: 'Player', life: 20, mulls: 0, library: [], hand: [], battlefield: [], graveyard: [], exile: [], command: [] };
+const players = {};                 // peerId -> public snapshot
+let deckDefs = null;                // { main: [...], cmd: [...] }
+let room = null, sendState = null, sendLog = null, joined = false;
+let sel = null, modal = null;       // modal = { zone, pid?, limit? }
+const logs = [];
+
+const find = id => {
+  for (const z of ZONES) { const i = me[z].findIndex(c => c.id === id); if (i >= 0) return { zone: z, card: me[z][i], idx: i }; }
+  return null;
+};
+const faceSrc = c => (c.tf && c.img2) ? c.img2 : c.img;
+
+/* ---------- networking (Trystero: WebRTC, public signaling, no server of ours) ---------- */
+async function connect(code){
+  const mod = await import('https://cdn.jsdelivr.net/npm/trystero@0.21.5/+esm');
+  room = mod.joinRoom({ appId: 'mtg-tabletop-static' }, code);
+  const [sS, gS] = room.makeAction('state');
+  const [sL, gL] = room.makeAction('log');
+  sendState = sS; sendLog = sL;
+  gS((snap, id) => {
+    const first = !players[id];
+    players[id] = snap;
+    if (first) log(`${snap.name} joined the table`);
+    renderOpps(); updatePeers();
+  });
+  gL(text => log(text));
+  room.onPeerJoin(id => { sS(snapshot(), id); });
+  room.onPeerLeave(id => {
+    const p = players[id]; delete players[id];
+    if (p) log(`${p.name} left the table`);
+    renderOpps(); updatePeers();
+  });
+  joined = true;
+}
+
+const pubCard = c => c.fd
+  ? { id: c.id, x: c.x, y: c.y, tapped: c.tapped, n: c.n, fd: 1 }
+  : { id: c.id, name: c.name, img: faceSrc(c) || null, x: c.x, y: c.y, tapped: c.tapped, n: c.n, tk: c.tk ? 1 : 0 };
+const pubFace = c => ({ id: c.id, name: c.name, img: c.img || null });
+
+function snapshot(){
+  return {
+    name: me.name, life: me.life, hand: me.hand.length, lib: me.library.length,
+    bf: me.battlefield.map(pubCard),
+    gy: me.graveyard.map(pubFace), ex: me.exile.map(pubFace), cmd: me.command.map(pubFace)
+  };
+}
+let pushT = null;
+function push(){ if (!sendState || pushT) return; pushT = setTimeout(() => { pushT = null; sendState(snapshot()); }, 50); }
+function pushNow(){ clearTimeout(pushT); pushT = null; if (sendState) sendState(snapshot()); }
+
+function log(text, broadcast){
+  logs.push(text); if (logs.length > 200) logs.shift();
+  renderLog();
+  if (broadcast && sendLog) sendLog(text);
+}
+const say = t => log(`${me.name} ${t}`, true);
+
+/* ---------- deck import ---------- */
+function parseDeck(text){
+  const main = [], cmd = []; let sect = 'main';
+  for (const raw of text.split(/\r?\n/)) {
+    let line = raw.trim();
+    if (!line || line.startsWith('//') || line.startsWith('#')) continue;
+    const h = line.match(/^(commander|deck|main(?:deck)?|sideboard|companion|maybeboard|maybe)\b:?$/i);
+    if (h) { const k = h[1].toLowerCase(); sect = k === 'commander' ? 'cmd' : (k.startsWith('main') || k === 'deck') ? 'main' : 'skip'; continue; }
+    if (/^sb:/i.test(line)) continue;
+    if (sect === 'skip') continue;
+    let qty = 1, name = line;
+    const m = line.match(/^(\d+)\s*x?\s+(.+)$/i);
+    if (m) { qty = parseInt(m[1], 10); name = m[2]; }
+    name = name.replace(/\s+\([^)]*\).*$/, '').replace(/\s*\*[A-Za-z]\*\s*$/, '').trim();
+    if (!name) continue;
+    (sect === 'cmd' ? cmd : main).push({ qty, name });
+  }
+  return { main, cmd };
+}
+
+async function fetchCards(names, status){
+  const front = n => n.split(' // ')[0].trim();
+  const uniq = [...new Set(names.map(n => front(n).toLowerCase()))];
+  const byName = new Map(), missing = [];
+  for (let i = 0; i < uniq.length; i += 75) {
+    const chunk = uniq.slice(i, i + 75);
+    status.textContent = `Fetching cards from Scryfall… ${Math.min(i + 75, uniq.length)}/${uniq.length}`;
+    const r = await fetch('https://api.scryfall.com/cards/collection', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ identifiers: chunk.map(name => ({ name })) })
+    });
+    if (!r.ok) throw new Error('Scryfall returned ' + r.status);
+    const j = await r.json();
+    for (const c of j.data) {
+      byName.set(c.name.toLowerCase(), c);
+      (c.card_faces || []).forEach(f => byName.set(f.name.toLowerCase(), c));
+    }
+    (j.not_found || []).forEach(x => missing.push(x.name));
+    if (i + 75 < uniq.length) await sleep(120);
+  }
+  return { byName, missing };
+}
+
+function toDef(sc){
+  let img = null, img2 = null;
+  if (sc.image_uris) img = sc.image_uris.normal;
+  else if (sc.card_faces) {
+    img = sc.card_faces[0]?.image_uris?.normal || null;
+    img2 = sc.card_faces[1]?.image_uris?.normal || null;
+  }
+  return { name: sc.name, img, img2 };
+}
+
+async function loadDeck(text, status){
+  const parsed = parseDeck(text);
+  const all = [...parsed.main, ...parsed.cmd].map(x => x.name);
+  if (!all.length) throw new Error('No cards found in that decklist.');
+  const { byName, missing } = await fetchCards(all, status);
+  if (missing.length) throw new Error('Scryfall could not find:\n' + missing.join('\n') + '\n\nFix the names and press the button again.');
+  const expand = list => list.flatMap(x => {
+    const sc = byName.get(x.name.split(' // ')[0].trim().toLowerCase());
+    return sc ? Array.from({ length: x.qty }, () => toDef(sc)) : [];
+  });
+  deckDefs = { main: expand(parsed.main), cmd: expand(parsed.cmd) };
+}
+
+/* ---------- game actions ---------- */
+const mk = d => ({ id: uid(), name: d.name, img: d.img, img2: d.img2, x: 0, y: 0, tapped: false, fd: false, tf: false, n: 0 });
+
+function newGame(){
+  if (!deckDefs) return;
+  me.library = shuffle(deckDefs.main.map(mk));
+  me.command = deckDefs.cmd.map(mk);
+  me.hand = []; me.battlefield = []; me.graveyard = []; me.exile = [];
+  me.mulls = 0; me.life = deckDefs.cmd.length ? 40 : 20; sel = null;
+  draw(7, true);
+  say('starts a new game');
+}
+function draw(n = 1, quiet){
+  let got = 0;
+  for (let i = 0; i < n && me.library.length; i++) { me.hand.push(me.library.shift()); got++; }
+  if (!quiet && got) say(`draws ${got === 1 ? 'a card' : got + ' cards'}`);
+  if (!quiet && !got) log('Your library is empty.');
+}
+function spot(){
+  const n = me.battlefield.length;
+  return { x: clamp(0.04 + (n % 12) * 0.03, 0, 1 - CW), y: clamp(0.3 + (Math.floor(n / 12) % 4) * 0.05, 0, 1 - CH) };
+}
+function move(id, to){
+  const f = find(id); if (!f) return;
+  const c = f.card, from = f.zone;
+  const knownName = ['battlefield', 'graveyard', 'exile', 'command'].includes(from) && !c.fd ? c.name : 'a card';
+  me[from].splice(f.idx, 1);
+  if (c.tk && to !== 'battlefield') { say(`removes the token ${c.name}`); return; }
+  c.tapped = false; c.fd = false; c.tf = false; c.n = 0;
+  switch (to) {
+    case 'battlefield': { const s = spot(); c.x = s.x; c.y = s.y; me.battlefield.push(c); if (from !== 'battlefield') say(`puts ${c.name} onto the battlefield`); break; }
+    case 'hand': me.hand.push(c); if (from !== 'hand') say(`returns ${knownName} to hand`); break;
+    case 'graveyard': me.graveyard.push(c); say(`puts ${c.name} into the graveyard`); break;
+    case 'exile': me.exile.push(c); say(`exiles ${c.name}`); break;
+    case 'command': me.command.push(c); say(`returns ${c.name} to the command zone`); break;
+    case 'top': me.library.unshift(c); say(`puts ${knownName} on top of their library`); break;
+    case 'bottom': me.library.push(c); say(`puts ${knownName} on the bottom of their library`); break;
+  }
+}
+
+function doAction(a){
+  const f = sel && find(sel); if (!f) return;
+  const c = f.card;
+  if (a === 'tap' && f.zone === 'battlefield') c.tapped = !c.tapped;
+  else if (a === 'flip' && f.zone === 'battlefield') c.fd = !c.fd;
+  else if (a === 'tf' && f.zone === 'battlefield' && c.img2) c.tf = !c.tf;
+  else if (a === 'plus' && f.zone === 'battlefield') c.n++;
+  else if (a === 'minus' && f.zone === 'battlefield') c.n = Math.max(0, c.n - 1);
+  else if (a === 'rm') { me[f.zone].splice(f.idx, 1); say(`removes the token ${c.name}`); sel = null; }
+  else if (a === 'play') move(sel, 'battlefield');
+  else if (['hand', 'graveyard', 'exile', 'command', 'top', 'bottom'].includes(a)) move(sel, a);
+  const g = sel && find(sel);
+  if (modal && !modal.pid && g && g.zone !== modal.zone) sel = null;
+  if (!g) sel = null;
+  pushNow(); renderAll();
+}
+
+function control(c){
+  switch (c) {
+    case 'draw': draw(1); break;
+    case 'shuffle': shuffle(me.library); say('shuffles their library'); break;
+    case 'untap': me.battlefield.forEach(x => x.tapped = false); say('untaps everything'); break;
+    case 'look': {
+      const n = parseInt(prompt('Look at how many cards from the top?', '3'), 10);
+      if (n > 0) { modal = { zone: 'library', limit: n }; say(`looks at the top ${n} card${n > 1 ? 's' : ''} of their library`); }
+      break;
+    }
+    case 'mull':
+      if (!deckDefs) break;
+      me.library.push(...me.hand.splice(0), ...[]); shuffle(me.library); me.mulls++;
+      draw(7, true);
+      say(`takes a mulligan (#${me.mulls})`);
+      if (me.mulls > 0) log(`Put ${me.mulls} card${me.mulls > 1 ? 's' : ''} on the bottom of your library.`);
+      break;
+    case 'token': {
+      const name = prompt('Token name (for example: Goblin 1/1)'); if (!name) break;
+      const s = spot();
+      const t = { id: uid(), name: name.slice(0, 40), img: null, tk: true, x: s.x, y: s.y, tapped: false, fd: false, tf: false, n: 0 };
+      me.battlefield.push(t); say(`creates a token: ${t.name}`); break;
+    }
+    case 'd6': say(`rolls a d6: ${rnd(6) + 1}`); break;
+    case 'd20': say(`rolls a d20: ${rnd(20) + 1}`); break;
+    case 'coin': say(`flips a coin: ${rnd(2) ? 'heads' : 'tails'}`); break;
+    case 'newgame':
+      if (!deckDefs) { openDialog(); return; }
+      if (confirm('Reshuffle everything and start a new game?')) newGame();
+      break;
+  }
+  pushNow(); renderAll();
+}
+
+/* ---------- rendering ---------- */
+function cardHTML(c, mine){
+  const src = faceSrc(c);
+  let inner;
+  if (c.fd) inner = '<div class="back"></div>';
+  else if (src) inner = `<img src="${esc(src)}" alt="${esc(c.name)}" draggable="false">`;
+  else inner = `<div class="tokenface"><b>${esc(c.name)}</b></div>`;
+  const prev = c.fd ? (mine ? c.img : '') : src;
+  return `<div class="card${c.tapped ? ' tapped' : ''}${sel === c.id ? ' sel' : ''}" data-id="${c.id}"${mine ? ' data-mine="1"' : ''}${prev ? ` data-img="${esc(prev)}"` : ''} style="left:${c.x * 100}%;top:${c.y * 100}%">${inner}${c.n ? `<span class="cnt">${c.n}</span>` : ''}</div>`;
+}
+
+function renderMe(){
+  $('#me').hidden = !joined;
+  if (!joined) return;
+  $('#mehead').innerHTML =
+    `<b>${esc(me.name)}</b>
+     <span class="lifeedit"><button data-life="-1" aria-label="Lose 1 life">−</button><input id="lifeIn" type="number" value="${me.life}" aria-label="Life total"><button data-life="1" aria-label="Gain 1 life">+</button></span>
+     <button class="chip" data-zone="library">Library ${me.library.length}</button>
+     <button class="chip" data-zone="graveyard">Graveyard ${me.graveyard.length}</button>
+     <button class="chip" data-zone="exile">Exile ${me.exile.length}</button>
+     ${me.command.length ? `<button class="chip" data-zone="command">Command ${me.command.length}</button>` : ''}`;
+  $('#myboard').innerHTML = me.battlefield.map(c => cardHTML(c, true)).join('');
+}
+
+function renderOpps(){
+  const box = $('#opps');
+  if (!joined) { box.innerHTML = ''; return; }
+  const ids = Object.keys(players);
+  if (!ids.length) { box.innerHTML = '<div class="empty">Waiting for players. Send the invite link and they will appear here.</div>'; return; }
+  box.innerHTML = ids.map(id => {
+    const p = players[id];
+    return `<div class="opp">
+      <div class="phead"><b>${esc(p.name)}</b><span class="life">${p.life}</span>
+        <span class="chip">Library ${p.lib}</span><span class="chip">Hand ${p.hand}</span>
+        <button class="chip" data-oz="${id}:graveyard">Graveyard ${p.gy.length}</button>
+        <button class="chip" data-oz="${id}:exile">Exile ${p.ex.length}</button>
+        ${p.cmd.length ? `<button class="chip" data-oz="${id}:command">Command ${p.cmd.length}</button>` : ''}</div>
+      <div class="board">${p.bf.map(c => cardHTML(c, false)).join('')}</div></div>`;
+  }).join('');
+  if (modal && modal.pid) renderModal();
+}
+
+function renderHand(){
+  const h = $('#hand');
+  if (!me.hand.length) { h.innerHTML = `<span class="none">${joined ? 'Your hand is empty. Load a deck and start a game to draw seven.' : 'Join a table to get started.'}</span>`; return; }
+  h.innerHTML = me.hand.map(c =>
+    `<div class="hc${sel === c.id ? ' sel' : ''}" data-id="${c.id}" data-mine="1" ${c.img ? `data-img="${esc(c.img)}"` : ''}>${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tokenface">${esc(c.name)}</div>`}</div>`).join('');
+}
+
+function actionHTML(){
+  const f = sel && find(sel); if (!f) return '<span style="color:var(--dim)">Select a card to see what you can do with it. Double-click taps a card or plays it from hand.</span>';
+  const { zone, card } = f, b = [];
+  const add = (a, l) => b.push(`<button data-act="${a}">${l}</button>`);
+  b.push(`<span class="sname">${esc(card.name)}</span>`);
+  if (zone === 'battlefield') {
+    add('tap', card.tapped ? 'Untap' : 'Tap'); add('flip', card.fd ? 'Face up' : 'Face down');
+    if (card.img2) add('tf', 'Transform');
+    add('plus', '+1 counter'); add('minus', '−1 counter');
+  } else add('play', 'Play');
+  if (card.tk) add('rm', 'Remove token');
+  else {
+    if (zone !== 'hand') add('hand', 'To hand');
+    if (zone !== 'graveyard') add('graveyard', 'Graveyard');
+    if (zone !== 'exile') add('exile', 'Exile');
+    if (zone !== 'command') add('command', 'Command zone');
+    add('top', 'Library top'); add('bottom', 'Library bottom');
+  }
+  return b.join('');
+}
+function renderActions(){ const h = actionHTML(); $('#actions').innerHTML = h; $('#mactions').innerHTML = (modal && !modal.pid) ? h : ''; }
+
+function renderModal(){
+  const m = $('#modal');
+  if (!modal) { m.hidden = true; return; }
+  let cards, title; const theirs = !!modal.pid;
+  const label = { library: 'Library', graveyard: 'Graveyard', exile: 'Exile', command: 'Command zone' }[modal.zone];
+  if (theirs) {
+    const p = players[modal.pid]; if (!p) { modal = null; m.hidden = true; return; }
+    cards = p[{ graveyard: 'gy', exile: 'ex', command: 'cmd' }[modal.zone]].slice();
+    if (modal.zone !== 'command') cards.reverse();
+    title = `${p.name}: ${label} (${cards.length})`;
+  } else if (modal.zone === 'library') {
+    cards = modal.limit ? me.library.slice(0, modal.limit) : me.library.slice().sort((a, b) => a.name.localeCompare(b.name));
+    title = modal.limit ? `Top ${cards.length} of your library, top card first` : `Your library, sorted by name (${cards.length})`;
+  } else {
+    cards = me[modal.zone].slice();
+    if (modal.zone !== 'command') cards.reverse();
+    title = `Your ${label.toLowerCase()} (${cards.length})`;
+  }
+  $('#mtitle').textContent = title;
+  $('#zgrid').innerHTML = cards.length ? cards.map(c =>
+    `<div class="zc${sel === c.id ? ' sel' : ''}" ${theirs ? '' : `data-zid="${c.id}"`} ${c.img ? `data-img="${esc(c.img)}"` : ''}>${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}">` : `<div class="tokenface">${esc(c.name)}</div>`}</div>`).join('')
+    : '<span style="color:var(--dim)">Nothing here.</span>';
+  m.hidden = false;
+  renderActions();
+}
+
+function renderLog(){
+  const el = $('#log');
+  const open = el.classList.contains('open');
+  el.innerHTML = logs.slice(open ? -200 : -3).map(l => `<div>${esc(l)}</div>`).join('');
+  if (open) el.scrollTop = el.scrollHeight;
+}
+function updatePeers(){ $('#peerCount').textContent = joined ? `${Object.keys(players).length + 1} at the table` : ''; }
+function renderAll(){ renderMe(); renderOpps(); renderHand(); renderActions(); if (modal) renderModal(); else $('#modal').hidden = true; updatePeers(); }
+function select(id){
+  sel = id;
+  $$('.sel').forEach(e => e.classList.remove('sel'));
+  $$(`[data-id="${id}"],[data-zid="${id}"]`).forEach(e => e.classList.add('sel'));
+  renderActions();
+}
+
+/* ---------- pointer interaction: drag cards, hover preview ---------- */
+const preview = $('#preview');
+document.addEventListener('pointerover', e => {
+  const t = e.target.closest('[data-img]');
+  if (!t || dragging) { if (!t) preview.hidden = true; return; }
+  preview.src = t.dataset.img;
+  preview.className = e.clientX > innerWidth / 2 ? 'l' : 'r';
+  preview.hidden = false;
+});
+document.addEventListener('pointerout', e => { if (!e.relatedTarget || !e.relatedTarget.closest?.('[data-img]')) preview.hidden = true; });
+
+let dragging = false;
+document.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const el = e.target.closest('[data-mine][data-id]'); if (!el) return;
+  const id = el.dataset.id, f = find(id); if (!f) return;
+  select(id);
+  const fromHand = f.zone === 'hand';
+  const board = $('#myboard'), hand = $('#hand');
+  const sx = e.clientX, sy = e.clientY, c = f.card, bx = c.x, by = c.y;
+  const cr = el.getBoundingClientRect();
+  let moved = false, ghost = null;
+  const over = (sel_, ev) => { const r = sel_.getBoundingClientRect(); return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom; };
+
+  const mv = ev => {
+    const dx = ev.clientX - sx, dy = ev.clientY - sy;
+    if (!moved) {
+      if (Math.hypot(dx, dy) < 5) return;
+      moved = true; dragging = true; preview.hidden = true;
+      if (fromHand) { ghost = el.cloneNode(true); ghost.classList.add('ghost'); ghost.style.width = cr.width + 'px'; document.body.appendChild(ghost); el.style.opacity = .3; }
+      else el.classList.add('dragging');
+    }
+    if (fromHand) { ghost.style.left = ev.clientX - cr.width / 2 + 'px'; ghost.style.top = ev.clientY - cr.height / 2 + 'px'; }
+    else {
+      const br = board.getBoundingClientRect();
+      c.x = clamp(bx + dx / br.width, 0, 1 - CW); c.y = clamp(by + dy / br.height, 0, 1 - CH);
+      el.style.left = c.x * 100 + '%'; el.style.top = c.y * 100 + '%';
+      hand.classList.toggle('drop', over(hand, ev));
+      push();
+    }
+  };
+  const up = ev => {
+    removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+    hand.classList.remove('drop'); dragging = false;
+    if (!moved) return;
+    if (ghost) ghost.remove();
+    if (fromHand) {
+      if (over(board, ev) || (ev.clientY < hand.getBoundingClientRect().top)) {
+        const br = board.getBoundingClientRect();
+        move(id, 'battlefield');
+        const g = find(id);
+        if (g) { g.card.x = clamp((ev.clientX - br.left) / br.width - CW / 2, 0, 1 - CW); g.card.y = clamp((ev.clientY - br.top) / br.height - CH / 2, 0, 1 - CH); }
+      }
+    } else if (over(hand, ev)) move(id, 'hand');
+    else { const g = find(id); if (g) { me.battlefield.splice(g.idx, 1); me.battlefield.push(g.card); } }
+    pushNow(); renderAll();
+  };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+});
+
+document.addEventListener('dblclick', e => {
+  const el = e.target.closest('[data-mine][data-id]'); if (!el) return;
+  const f = find(el.dataset.id); if (!f) return;
+  select(el.dataset.id);
+  if (f.zone === 'battlefield') doAction('tap');
+  else if (f.zone === 'hand') doAction('play');
+});
+
+/* ---------- clicks ---------- */
+document.addEventListener('click', e => {
+  const t = e.target;
+  const act = t.closest('[data-act]'); if (act) return doAction(act.dataset.act);
+  const ctl = t.closest('[data-c]'); if (ctl) return control(ctl.dataset.c);
+  const life = t.closest('[data-life]');
+  if (life) { setLife(me.life + parseInt(life.dataset.life, 10)); return; }
+  const z = t.closest('[data-zone]'); if (z) { modal = { zone: z.dataset.zone }; if (z.dataset.zone === 'library') say('searches their library'); renderAll(); return; }
+  const oz = t.closest('[data-oz]'); if (oz) { const [pid, zone] = oz.dataset.oz.split(':'); modal = { pid, zone }; renderModal(); return; }
+  const zc = t.closest('[data-zid]'); if (zc) { select(zc.dataset.zid); return; }
+  if (t.closest('#mclose') || t.id === 'modal') { modal = null; renderAll(); return; }
+  if (t.closest('#log')) { $('#log').classList.toggle('open'); renderLog(); return; }
+  if (t.closest('#stage') && !t.closest('.card') && !t.closest('button') && !t.closest('input')) { sel = null; $$('.sel').forEach(x => x.classList.remove('sel')); renderActions(); }
+});
+
+let lifeTimer = null, lifeFrom = null;
+function setLife(v){
+  if (lifeFrom === null) lifeFrom = me.life;
+  me.life = v; clearTimeout(lifeTimer);
+  lifeTimer = setTimeout(() => { say(`life ${lifeFrom} → ${me.life}`); lifeFrom = null; }, 900);
+  pushNow(); renderMe();
+}
+document.addEventListener('change', e => { if (e.target.id === 'lifeIn') setLife(parseInt(e.target.value, 10) || 0); });
+
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input,textarea,dialog')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'escape' && modal) { modal = null; renderAll(); return; }
+  if (!joined) return;
+  if (k === 'd') control('draw');
+  else if (k === 'u') control('untap');
+  else if (sel) {
+    const map = { t: 'tap', f: 'flip', g: 'graveyard', x: 'exile', h: 'hand', '=': 'plus', '+': 'plus', '-': 'minus' };
+    if (map[k]) doAction(map[k]);
+    else if (k === 'delete' || k === 'backspace') { const f = find(sel); if (f && f.card.tk) doAction('rm'); }
+  }
+});
+
+$('#chat').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const v = e.target.value.trim(); if (!v) return;
+  log(`${me.name}: ${v}`, true); e.target.value = '';
+});
+
+/* ---------- join dialog ---------- */
+const dlg = $('#dlg');
+function openDialog(){
+  $('#fName').value = me.name !== 'Player' ? me.name : (store('mtg.name') || '');
+  if (!joined) $('#fRoom').value = location.hash.slice(1) || store('mtg.room') || $('#fRoom').value;
+  $('#fDeck').value = store('mtg.deck') || $('#fDeck').value;
+  $('#fRoom').disabled = joined; $('#genRoom').disabled = joined;
+  $('#goBtn').textContent = joined ? 'Load deck and start game' : 'Join table';
+  $('#status').textContent = '';
+  dlg.showModal();
+}
+$('#btnDeck').addEventListener('click', openDialog);
+$('#dlgClose').addEventListener('click', () => dlg.close());
+$('#genRoom').addEventListener('click', () => {
+  const w = ['otter', 'ember', 'fable', 'harbor', 'quartz', 'willow', 'tundra', 'sable', 'lumen', 'cinder'];
+  $('#fRoom').value = w[rnd(w.length)] + '-' + (1000 + rnd(9000));
+});
+$('#copyLink').addEventListener('click', async e => {
+  try { await navigator.clipboard.writeText(location.href); e.target.textContent = 'Copied'; }
+  catch { prompt('Copy this link:', location.href); }
+  setTimeout(() => e.target.textContent = 'Copy invite link', 1500);
+});
+
+$('#joinForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const st = $('#status');
+  const name = $('#fName').value.trim() || 'Player';
+  const code = $('#fRoom').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  if (!joined && !code) { st.textContent = 'Enter a room code, or press Generate.'; return; }
+  try {
+    me.name = name; store('mtg.name', name);
+    if (!joined) {
+      st.textContent = 'Connecting…';
+      await connect(code);
+      location.hash = code; store('mtg.room', code);
+      $('#roomchip').textContent = 'Room ' + code; $('#roomchip').hidden = false; $('#copyLink').hidden = false;
+      $('#btnDeck').textContent = 'Deck';
+      log(`You joined room ${code}. Share the invite link so others can sit down.`);
+    }
+    const text = $('#fDeck').value; store('mtg.deck', text);
+    if (text.trim()) { await loadDeck(text, st); newGame(); }
+    renderAll(); pushNow(); dlg.close();
+  } catch (err) {
+    st.textContent = 'That did not work: ' + err.message;
+  }
+});
+
+renderLog(); renderAll(); openDialog();
+</script>
+</body>
+</html>
