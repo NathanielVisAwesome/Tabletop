@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tabletop · p2p Magic</title>
+<title>Tabletop · peer-to-peer Magic</title>
 <style>
 :root{
   --bg:#10151a; --panel:#18212a; --panel2:#1f2b36; --line:#304250;
@@ -19,7 +19,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
 button:hover{border-color:var(--amber)}
 button:focus-visible,input:focus-visible,textarea:focus-visible,.card:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-input,textarea{background:#0d1217;border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+input,textarea,select{background:#0d1217;border:1px solid var(--line);border-radius:6px;padding:6px 8px}
 
 #top{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
 .brand{font:600 20px var(--serif);letter-spacing:.01em}
@@ -169,8 +169,14 @@ textarea{min-height:170px;resize:vertical;font:13px/1.4 ui-monospace,Menlo,Conso
         <button type="button" id="genRoom">Generate</button>
       </span>
     </label>
-    <label>Decklist (Moxfield, Archidekt, Arena or MTGO text)
-      <textarea id="fDeck" spellcheck="false" placeholder="4 Lightning Bolt&#10;20 Mountain&#10;&#10;Commander&#10;1 Krenko, Mob Boss"></textarea>
+    <label>Format
+      <select id="fFormat">
+        <option value="default">Default (20 life, no command zone)</option>
+        <option value="commander">Commander (40 life, command zone)</option>
+      </select>
+    </label>
+    <label>Decklist (Moxfield, Archidekt, Arena or MTGO text). In Commander, put # in front of your commander.
+      <textarea id="fDeck" spellcheck="false" placeholder="4 Lightning Bolt&#10;20 Mountain&#10;&#10;Commander example:&#10;#1 Krenko, Mob Boss&#10;1 Sol Ring"></textarea>
     </label>
     <div id="status" role="status"></div>
     <div class="row">
@@ -195,7 +201,7 @@ function shuffle(a){ for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 
 
 /* ---------- state ---------- */
 const ZONES = ['library', 'hand', 'battlefield', 'graveyard', 'exile', 'command'];
-const me = { name: 'Player', life: 20, mulls: 0, library: [], hand: [], battlefield: [], graveyard: [], exile: [], command: [] };
+const me = { name: 'Player', format: 'default', life: 20, mulls: 0, library: [], hand: [], battlefield: [], graveyard: [], exile: [], command: [] };
 const players = {};                 // peerId -> public snapshot
 let deckDefs = null;                // { main: [...], cmd: [...] }
 let room = null, sendState = null, sendLog = null, joined = false;
@@ -256,22 +262,23 @@ const say = t => log(`${me.name} ${t}`, true);
 
 /* ---------- deck import ---------- */
 function parseDeck(text){
-  const main = [], cmd = []; let sect = 'main';
+  const list = []; let sect = 'main';
   for (const raw of text.split(/\r?\n/)) {
     let line = raw.trim();
-    if (!line || line.startsWith('//') || line.startsWith('#')) continue;
+    if (!line || line.startsWith('//')) continue;
+    let mark = false;
+    if (line.startsWith('#')) { line = line.replace(/^#+\s*/, ''); if (!line) continue; mark = true; }
     const h = line.match(/^(commander|deck|main(?:deck)?|sideboard|companion|maybeboard|maybe)\b:?$/i);
-    if (h) { const k = h[1].toLowerCase(); sect = k === 'commander' ? 'cmd' : (k.startsWith('main') || k === 'deck') ? 'main' : 'skip'; continue; }
-    if (/^sb:/i.test(line)) continue;
-    if (sect === 'skip') continue;
+    if (h && !mark) { const k = h[1].toLowerCase(); sect = k === 'commander' ? 'cmd' : (k.startsWith('main') || k === 'deck') ? 'main' : 'skip'; continue; }
+    if (/^sb:/i.test(line) || sect === 'skip') continue;
     let qty = 1, name = line;
     const m = line.match(/^(\d+)\s*x?\s+(.+)$/i);
     if (m) { qty = parseInt(m[1], 10); name = m[2]; }
     name = name.replace(/\s+\([^)]*\).*$/, '').replace(/\s*\*[A-Za-z]\*\s*$/, '').trim();
     if (!name) continue;
-    (sect === 'cmd' ? cmd : main).push({ qty, name });
+    list.push({ qty, name, cmd: mark || sect === 'cmd' });
   }
-  return { main, cmd };
+  return list;
 }
 
 async function fetchCards(names, status){
@@ -307,17 +314,34 @@ function toDef(sc){
   return { name: sc.name, img, img2 };
 }
 
-async function loadDeck(text, status){
-  const parsed = parseDeck(text);
-  const all = [...parsed.main, ...parsed.cmd].map(x => x.name);
-  if (!all.length) throw new Error('No cards found in that decklist.');
-  const { byName, missing } = await fetchCards(all, status);
+function canBeCommander(sc){
+  const front = (sc.type_line || '').split(' // ')[0];
+  const oracle = (sc.oracle_text || '') + ' ' + (sc.card_faces || []).map(f => f.oracle_text || '').join(' ');
+  const power = sc.power ?? sc.card_faces?.[0]?.power;
+  const legendary = /Legendary/.test(front);
+  const body = /Creature/.test(front) || (/Vehicle|Spacecraft/.test(front) && power != null);
+  return sc.legalities?.commander === 'legal' && ((legendary && body) || /can be your commander/i.test(oracle));
+}
+
+async function loadDeck(text, format, status){
+  const list = parseDeck(text);
+  if (!list.length) throw new Error('No cards found in that decklist.');
+  const { byName, missing } = await fetchCards(list.map(x => x.name), status);
   if (missing.length) throw new Error('Scryfall could not find:\n' + missing.join('\n') + '\n\nFix the names and press the button again.');
-  const expand = list => list.flatMap(x => {
+  const main = [], cmd = [], warn = [];
+  for (const x of list) {
     const sc = byName.get(x.name.split(' // ')[0].trim().toLowerCase());
-    return sc ? Array.from({ length: x.qty }, () => toDef(sc)) : [];
-  });
-  deckDefs = { main: expand(parsed.main), cmd: expand(parsed.cmd) };
+    if (!sc) continue;
+    if (x.cmd && format === 'commander') {
+      if (!canBeCommander(sc)) warn.push(`${sc.name} can't be a commander, so it went into the library.`);
+      else if (cmd.length >= 2) warn.push(`Only two commanders are allowed (partners), so ${sc.name} went into the library.`);
+      else { cmd.push(toDef(sc)); continue; }
+    } else if (x.cmd) warn.push(`Format is Default, so ${sc.name} went into the library instead of the command zone.`);
+    for (let i = 0; i < x.qty; i++) main.push(toDef(sc));
+  }
+  if (format === 'commander' && !cmd.length) warn.push('No commander found. Put # in front of your commander\'s name.');
+  deckDefs = { main, cmd };
+  return warn;
 }
 
 /* ---------- game actions ---------- */
@@ -328,7 +352,7 @@ function newGame(){
   me.library = shuffle(deckDefs.main.map(mk));
   me.command = deckDefs.cmd.map(mk);
   me.hand = []; me.battlefield = []; me.graveyard = []; me.exile = [];
-  me.mulls = 0; me.life = deckDefs.cmd.length ? 40 : 20; sel = null;
+  me.mulls = 0; me.life = me.format === 'commander' ? 40 : 20; sel = null;
   draw(7, true);
   say('starts a new game');
 }
@@ -642,12 +666,16 @@ function openDialog(){
   $('#fName').value = me.name !== 'Player' ? me.name : (store('mtg.name') || '');
   if (!joined) $('#fRoom').value = location.hash.slice(1) || store('mtg.room') || $('#fRoom').value;
   $('#fDeck').value = store('mtg.deck') || $('#fDeck').value;
+  $('#fFormat').value = me.format !== 'default' ? me.format : (store('mtg.format') || 'default');
   $('#fRoom').disabled = joined; $('#genRoom').disabled = joined;
   $('#goBtn').textContent = joined ? 'Load deck and start game' : 'Join table';
   $('#status').textContent = '';
   dlg.showModal();
 }
 $('#btnDeck').addEventListener('click', openDialog);
+$('#fDeck').addEventListener('input', e => {
+  if ($('#fFormat').value === 'default' && /^\s*#\s*\S|^\s*commander\s*:?\s*$/im.test(e.target.value)) $('#fFormat').value = 'commander';
+});
 $('#dlgClose').addEventListener('click', () => dlg.close());
 $('#genRoom').addEventListener('click', () => {
   const w = ['otter', 'ember', 'fable', 'harbor', 'quartz', 'willow', 'tundra', 'sable', 'lumen', 'cinder'];
@@ -676,7 +704,12 @@ $('#joinForm').addEventListener('submit', async e => {
       log(`You joined room ${code}. Share the invite link so others can sit down.`);
     }
     const text = $('#fDeck').value; store('mtg.deck', text);
-    if (text.trim()) { await loadDeck(text, st); newGame(); }
+    if (text.trim()) {
+      me.format = $('#fFormat').value; store('mtg.format', me.format);
+      const warn = await loadDeck(text, me.format, st);
+      newGame();
+      warn.forEach(w => log(w));
+    }
     renderAll(); pushNow(); dlg.close();
   } catch (err) {
     st.textContent = 'That did not work: ' + err.message;
